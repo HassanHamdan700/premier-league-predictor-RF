@@ -5,7 +5,7 @@ import joblib
 import pickle
 import datetime
 
-st.set_page_config(page_title="PL Predictor Ultimate", page_icon="⚽", layout="centered")
+st.set_page_config(page_title="PL Predictor Ultimate", layout="centered")
 
 @st.cache_resource
 def load_data():
