@@ -5,36 +5,28 @@ import joblib
 import pickle
 import datetime
 
-# --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="PL Predictor Ultimate", page_icon="⚽", layout="centered")
 
-# --- LOAD SAVED FILES ---
 @st.cache_resource
 def load_data():
     try:
-        # Load the trained Random Forest model
         model = joblib.load('football_model_2526.pkl')
         
-        # Load the team name encodings
         with open('team_encoding_252.pkl', 'rb') as f:
             encodings = pickle.load(f)
             
-        # Load the historical data
         with open('team_stats_252.pkl', 'rb') as f:
             stats_df = pickle.load(f)
         
-        # CRITICAL: Ensure the Date column is a proper datetime object
-        # We use dayfirst=True because your CSV data likely looks like "22/11/2025"
         stats_df['Date'] = pd.to_datetime(stats_df['Date'], dayfirst=True, errors='coerce')
         
         return model, encodings, stats_df
     except FileNotFoundError as e:
-        st.error(f"❌ Missing file: {e}. Please ensure all .pkl files are in the same directory.")
+        st.error(f"Missing file: {e}. Please ensure all .pkl files are in the same directory.")
         return None, None, None
 
 model, encodings, stats_df = load_data()
 
-# --- HELPER: FIND MATCH WITH DATE WINDOW ---
 def find_match_in_history(home, away, target_date, df):
     """
     Searches for a match with a flexible date window (+/- 1 day)
@@ -43,7 +35,6 @@ def find_match_in_history(home, away, target_date, df):
     start_window = target_ts - pd.Timedelta(days=1)
     end_window = target_ts + pd.Timedelta(days=1)
     
-    # Filter: Same Teams + Date within window
     mask = (
         (df['HomeTeam'] == home) & 
         (df['AwayTeam'] == away) & 
@@ -54,19 +45,16 @@ def find_match_in_history(home, away, target_date, df):
     match_row = df[mask]
     
     if not match_row.empty:
-        return match_row.iloc[0] # Return the first match found
+        return match_row.iloc[0] 
     return None
 
-# --- APP UI ---
-st.title("⚽ Premier League Predictor")
+st.title("Premier League Predictor")
 st.markdown("Predict outcomes using Random Forest (2015-2025)")
 
 if model is not None:
     
-    # --- 1. INPUTS ---
     teams = encodings['HomeTeam']
     
-    # Set intelligent defaults for testing
     default_home = list(teams).index("Liverpool") if "Liverpool" in teams else 0
     default_away = list(teams).index("Nott'm Forest") if "Nott'm Forest" in teams else 1
     
@@ -75,23 +63,20 @@ if model is not None:
     away_team = col2.selectbox("Away Team", teams, index=default_away)
     
     col3, col4 = st.columns(2)
-    # Default date set to 2025-11-22 for testing
     date_input = col3.date_input("Match Date", datetime.date(2025, 11, 22))
     time_input = col4.time_input("Match Time", datetime.time(15, 0))
 
-    # --- 2. DATA LOOKUP ---
     historical_match = find_match_in_history(home_team, away_team, date_input, stats_df)
     is_historical = historical_match is not None
 
     if is_historical:
-        st.success(f"✅ Historical match data found for {home_team} vs {away_team}!")
+        st.success(f"Historical match data found for {home_team} vs {away_team}!")
     else:
-        st.warning(f"⚠️ Match not found in history. Using fallback stats.")
+        st.warning(f"Match not found in history. Using fallback stats.")
 
     st.divider()
 
-    # --- 3. ODDS SETUP ---
-    st.subheader("🎲 Betting Odds")
+    st.subheader("Betting Odds")
     
     use_exact_odds = False
     if is_historical:
@@ -112,23 +97,18 @@ if model is not None:
         prob_d = 1 / odds_d
         prob_a = 1 / odds_a
 
-    # --- 4. PREDICTION LOGIC ---
     if st.button("Predict Result", type="primary"):
         if home_team == away_team:
             st.error("Home and Away teams cannot be the same.")
         else:
-            # A. Prepare Time Features
             match_datetime = pd.to_datetime(f"{date_input} {time_input}")
             hour = match_datetime.hour
             day_code = match_datetime.dayofweek
             
-            # B. Prepare Team Codes
             home_code = list(teams).index(home_team)
             away_code = list(teams).index(away_team)
             
-            # C. Prepare Rolling Stats
             if is_historical:
-                # Use exact stats from history
                 stats = {
                     "FTHG_rolling": historical_match["FTHG_rolling"],
                     "FTAG_rolling": historical_match["FTAG_rolling"],
@@ -144,7 +124,6 @@ if model is not None:
                     "Away_AST_rolling": historical_match["Away_AST_rolling"],
                 }
             else:
-                # Fallback: Use most recent known stats
                 last_home = stats_df[(stats_df['HomeTeam'] == home_team) & (stats_df['Date'] < match_datetime)].sort_values('Date').iloc[-1:]
                 last_away = stats_df[(stats_df['AwayTeam'] == away_team) & (stats_df['Date'] < match_datetime)].sort_values('Date').iloc[-1:]
                 
@@ -165,7 +144,6 @@ if model is not None:
                     "Away_AST_rolling": get_val(last_away, "Away_AST_rolling"),
                 }
 
-            # D. Build Input Dataframe
             input_row = pd.DataFrame([{
                 "home_code": home_code,
                 "away_code": away_code,
@@ -177,11 +155,9 @@ if model is not None:
                 "prob_A": prob_a
             }])
 
-            # E. Predict
             prediction = model.predict(input_row)[0]
             probs = model.predict_proba(input_row)[0]
             
-            # F. Display Results
             mapping = {0: "Away Win", 1: "Draw", 2: "Home Win"}
             result_text = mapping[prediction]
             
@@ -196,17 +172,14 @@ if model is not None:
             col_b.metric("Draw", f"{probs[1]*100:.1f}%")
             col_c.metric("Away Win", f"{probs[0]*100:.1f}%")
 
-    # --- 5. DEBUG / INSPECTOR TOOL ---
     st.divider()
-    st.subheader("🕵️ Data Inspector (Debug Tool)")
+    st.subheader("Data Inspector (Debug Tool)")
     st.write("Check if your file actually contains the 2025 match data.")
 
     inspect_team = st.selectbox("Select Team to Inspect:", teams, key="debug_team")
     
-    # Filter data for this team
     debug_data = stats_df[stats_df['HomeTeam'] == inspect_team].sort_values('Date', ascending=False)
     
-    # Display top 5 rows
     st.write(f"Top 5 most recent matches for **{inspect_team}** in your file:")
     st.dataframe(debug_data[['Date', 'HomeTeam', 'AwayTeam', 'FTR']].head(5))
     
